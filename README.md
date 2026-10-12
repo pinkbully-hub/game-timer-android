@@ -6,6 +6,7 @@ Aplikasi Android sederhana berbahasa Indonesia untuk mengatur timer game sampai 
 
 - Masukkan jam, menit, dan detik; batas durasi 9.999:59:59.
 - Preset 1 jam, 24 jam, dan 1.000 jam.
+- Kaitkan timer dengan game: isi nama secara manual atau pilih aplikasi terpasang untuk memakai nama dan ikonnya.
 - Mulai, jeda, lanjutkan, dan reset.
 - Waktu tetap akurat setelah aplikasi dibuka kembali karena sisa waktu disimpan sebagai batas waktu absolut.
 - Tampilan gelap dengan indikator progres.
