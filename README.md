@@ -17,5 +17,7 @@ Aplikasi Android sederhana berbahasa Indonesia untuk mengatur timer game sampai 
 2. Tunggu Gradle menyinkronkan plugin dan dependensi.
 3. Jalankan konfigurasi `app` pada emulator atau perangkat Android (Android 6.0/API 23 atau lebih baru).
 
-Proyek memakai Kotlin dan Jetpack Compose. Jika ingin membuat APK dari terminal, jalankan `gradle assembleDebug` dari folder proyek setelah Gradle dan Android SDK tersedia.
+Proyek memakai Kotlin dan Jetpack Compose. Untuk membangun APK dari terminal, jalankan `.\gradlew.bat assembleDebug` setelah JDK 17 dan Android SDK Platform 35 tersedia. Hasilnya ada di `app/build/outputs/apk/debug/app-debug.apk`.
+
+Di workspace Codex ini, `.\build-local.ps1` otomatis memakai JDK dan Android SDK lokal yang telah disiapkan di folder `work/android-toolchain`.
 
