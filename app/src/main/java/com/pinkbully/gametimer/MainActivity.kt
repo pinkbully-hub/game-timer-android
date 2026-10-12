@@ -98,6 +98,9 @@ private fun TimerScreen(
                 if (left == 0L) {
                     running = false
                     endAt = 0L
+                    hours = "0"
+                    minutes = "00"
+                    seconds = "00"
                     save(0L, 0L, false)
                     break
                 }
