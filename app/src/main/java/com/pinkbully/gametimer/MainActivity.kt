@@ -1,10 +1,14 @@
 package com.pinkbully.gametimer
 
 import android.os.Bundle
+import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas as AndroidCanvas
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,8 +24,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -36,8 +44,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.Image
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -53,23 +65,59 @@ private val Muted = Color(0xFF858D9D)
 private val Lime = Color(0xFFB9F36A)
 private const val MAX_HOURS = 9_999L
 
+private data class InstalledApp(val name: String, val packageName: String, val icon: ImageBitmap)
+
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("game_timer", MODE_PRIVATE)
+        val installedApps = loadInstalledApps()
         setContent {
             MaterialTheme {
                 TimerScreen(
                     initialSeconds = prefs.getLong("remaining", 0L),
                     initialEndAt = prefs.getLong("end_at", 0L),
                     initiallyRunning = prefs.getBoolean("running", false),
+                    initialGameName = prefs.getString("game_name", "") ?: "",
+                    initialGamePackage = prefs.getString("game_package", "") ?: "",
+                    installedApps = installedApps,
                     save = { remaining, endAt, running ->
                         prefs.edit().putLong("remaining", remaining)
                             .putLong("end_at", endAt).putBoolean("running", running).apply()
+                    },
+                    saveGame = { name, packageName ->
+                        prefs.edit().putString("game_name", name)
+                            .putString("game_package", packageName).apply()
                     }
                 )
             }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun loadInstalledApps(): List<InstalledApp> {
+        val launcherIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        return packageManager.queryIntentActivities(launcherIntent, 0)
+            .asSequence()
+            .mapNotNull { info ->
+                val appInfo = info.activityInfo.applicationInfo
+                val packageName = appInfo.packageName
+                if (packageName == this.packageName) return@mapNotNull null
+                runCatching {
+                    val drawable = packageManager.getApplicationIcon(appInfo)
+                    val bitmap = Bitmap.createBitmap(96, 96, Bitmap.Config.ARGB_8888)
+                    drawable.setBounds(0, 0, 96, 96)
+                    drawable.draw(AndroidCanvas(bitmap))
+                    InstalledApp(
+                        name = packageManager.getApplicationLabel(appInfo).toString(),
+                        packageName = packageName,
+                        icon = bitmap.asImageBitmap()
+                    )
+                }.getOrNull()
+            }
+            .distinctBy { it.packageName }
+            .sortedBy { it.name.lowercase() }
+            .toList()
     }
 }
 
@@ -78,7 +126,11 @@ private fun TimerScreen(
     initialSeconds: Long,
     initialEndAt: Long,
     initiallyRunning: Boolean,
-    save: (Long, Long, Boolean) -> Unit
+    initialGameName: String,
+    initialGamePackage: String,
+    installedApps: List<InstalledApp>,
+    save: (Long, Long, Boolean) -> Unit,
+    saveGame: (String, String) -> Unit
 ) {
     val restoredRemaining = if (initiallyRunning && initialEndAt > 0L)
         ((initialEndAt - System.currentTimeMillis()).coerceAtLeast(0L) + 999L) / 1_000L
@@ -89,6 +141,12 @@ private fun TimerScreen(
     var hours by remember { mutableStateOf((restoredRemaining / 3600L).toString().takeIf { restoredRemaining > 0 } ?: "0") }
     var minutes by remember { mutableStateOf(((restoredRemaining % 3600L) / 60L).toString().padStart(2, '0')) }
     var seconds by remember { mutableStateOf((restoredRemaining % 60L).toString().padStart(2, '0')) }
+    var gameName by remember { mutableStateOf(initialGameName) }
+    var gamePackage by remember { mutableStateOf(initialGamePackage) }
+    var showGamePicker by remember { mutableStateOf(false) }
+    var manualGameName by remember { mutableStateOf(initialGameName) }
+    var appSearch by remember { mutableStateOf("") }
+    val selectedAppIcon = installedApps.firstOrNull { it.packageName == gamePackage }?.icon
 
     LaunchedEffect(running, endAt) {
         if (running) {
@@ -133,7 +191,26 @@ private fun TimerScreen(
                     modifier = Modifier.background(Color(0xFF202A1B), RoundedCornerShape(20.dp)).padding(horizontal = 11.dp, vertical = 8.dp))
             }
 
-            Spacer(Modifier.height(36.dp))
+            Spacer(Modifier.height(22.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth()
+                    .background(Panel, RoundedCornerShape(16.dp))
+                    .clickable { manualGameName = gameName; appSearch = ""; showGamePicker = true }
+                    .padding(13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                GameIcon(selectedAppIcon, Modifier.size(46.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(gameName.ifBlank { "Pilih game untuk timer ini" }, color = Color.White,
+                        fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Text(if (gamePackage.isNotBlank()) "Diambil dari aplikasi di HP" else if (gameName.isNotBlank()) "Nama diisi manual" else "Nama dan ikon bisa diatur",
+                        color = Muted, fontSize = 10.sp)
+                }
+                Text("UBAH", color = Lime, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            }
+
+            Spacer(Modifier.height(27.dp))
             Text(if (running) "WAKTU TERSISA" else if (remaining > 0) "TIMER DIJEDA" else "SIAP MAIN?",
                 color = Muted, fontSize = 11.sp, letterSpacing = 2.2.sp, fontWeight = FontWeight.Medium)
             Spacer(Modifier.height(16.dp))
@@ -216,6 +293,86 @@ private fun TimerScreen(
             }
             Spacer(Modifier.height(10.dp))
             Text("Timer tetap berjalan saat layar mati", color = Muted, fontSize = 11.sp)
+        }
+    }
+
+    if (showGamePicker) {
+        AlertDialog(
+            onDismissRequest = { showGamePicker = false },
+            title = { Text("Pilih game untuk timer") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = manualGameName,
+                        onValueChange = { manualGameName = it },
+                        label = { Text("Ketik nama game") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text("ATAU PILIH APLIKASI DI HP", color = Muted, fontSize = 10.sp, letterSpacing = 1.sp)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = appSearch,
+                        onValueChange = { appSearch = it },
+                        label = { Text("Cari aplikasi") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    val matchingApps = installedApps.filter { it.name.contains(appSearch, ignoreCase = true) }
+                    if (matchingApps.isEmpty()) {
+                        Text("Tidak ada aplikasi yang cocok.", color = Muted, fontSize = 12.sp,
+                            modifier = Modifier.padding(vertical = 12.dp))
+                    } else {
+                        LazyColumn(Modifier.height(220.dp)) {
+                            items(matchingApps, key = { it.packageName }) { app ->
+                                Row(
+                                    Modifier.fillMaxWidth()
+                                        .clickable {
+                                            gameName = app.name
+                                            gamePackage = app.packageName
+                                            saveGame(gameName, gamePackage)
+                                            showGamePicker = false
+                                        }
+                                        .padding(vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    GameIcon(app.icon, Modifier.size(36.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Text(app.name, color = Color.White, fontSize = 13.sp, maxLines = 1)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    gameName = manualGameName.trim()
+                    gamePackage = ""
+                    saveGame(gameName, gamePackage)
+                    showGamePicker = false
+                }) { Text("SIMPAN MANUAL") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGamePicker = false }) { Text("BATAL") }
+            }
+        )
+    }
+}
+
+@Composable
+private fun GameIcon(icon: ImageBitmap?, modifier: Modifier = Modifier) {
+    Box(
+        modifier.background(Color(0xFF242B35), RoundedCornerShape(12.dp)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (icon == null) {
+            Text("🎮", fontSize = 21.sp)
+        } else {
+            Image(bitmap = icon, contentDescription = "Ikon game", contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().padding(5.dp))
         }
     }
 }
